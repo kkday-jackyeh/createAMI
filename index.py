@@ -10,9 +10,9 @@ class Config:
         # Read config from ini file: .env
         self.config = configparser.ConfigParser()
         self.config.read('.env')
-        # print(self.config.get("AWS_ACCESS_KEY"))
 
     def get(self, key):
+        # get config by key
         return self.config.get('default', key)
 
 
@@ -37,9 +37,9 @@ class AWSOperation:
     def getEC2InstanceID(self):
         response = self.ec2.describe_instances(Filters=[
             {
-                'Name': 'tag:belongTo',
+                'Name': 'tag:Name',
                 'Values': [
-                    'jack',
+                    self.cfg.get('EC2_NAME'),
                 ]
             },
         ])
@@ -49,12 +49,12 @@ class AWSOperation:
         return self.ec2.create_image(
             InstanceId=instanceId, NoReboot=True, Name=imageName)
 
-    def getAMIState(self, imageId):
-        return self.ec2.describe_images(
-            Filters=[{
-                'Name': 'image-id',
-                'Values': [imageId]
-            }])['Images'][0]['State']
+    def waitForAMIAvailable(self, imageId):
+        waiter = self.ec2.get_waiter('image_available')
+        waiter.wait(ImageIds=[imageId], WaiterConfig={
+            'Delay': 60,
+            'MaxAttempts': 30
+        })
 
     def deleteOldAMI(self, imageName):
         imageId = self.ec2.describe_images(
@@ -94,19 +94,15 @@ def main():
 
     aws = AWSOperation()
     ec2Id = aws.getEC2InstanceID()
-    amiId = aws.createAMI(ec2Id, cfg.get("AMI_NAME"))
-
-    for i in range(60):
-        state = aws.getAMIState(amiId)
-        if state == 'available':
-            break
-
-        time.sleep(60)
-
     oldConfig = aws.getOldLaunchConfig()
+
     aws.deleteOldLaunchConfig()
     aws.deleteOldAMI(cfg.get("AMI_NAME"))
-    aws.createLaunchConfig(oldConfig, amiId)
+
+    amiInfo = aws.createAMI(ec2Id, cfg.get("AMI_NAME"))
+    aws.waitForAMIAvailable(amiInfo['ImageId'])
+
+    aws.createLaunchConfig(oldConfig, amiInfo['ImageId'])
 
 
 if __name__ == '__main__':

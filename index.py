@@ -2,7 +2,7 @@
 
 import configparser
 import boto3
-import time
+from datetime import date
 
 
 class Config:
@@ -20,34 +20,45 @@ class AWSOperation:
 
     def __init__(self):
         self.cfg = Config()
-        self.ec2 = boto3.client(
-            'ec2',
+
+        self.session = boto3.Session(
             aws_access_key_id=self.cfg.get("AWS_ACCESS_KEY"),
             aws_secret_access_key=self.cfg.get("AWS_SECRET_KEY"),
             region_name=self.cfg.get("AWS_REGION")
         )
 
-        self.autoscaling = boto3.client(
-            'autoscaling',
-            aws_access_key_id=self.cfg.get("AWS_ACCESS_KEY"),
-            aws_secret_access_key=self.cfg.get("AWS_SECRET_KEY"),
-            region_name=self.cfg.get("AWS_REGION")
-        )
+        self.ec2 = self.session.client('ec2')
+        self.autoscaling = self.session.client('autoscaling')
 
-    def getEC2InstanceID(self):
+    def getLatestEC2InstanceID(self):
         response = self.ec2.describe_instances(Filters=[
             {
-                'Name': 'tag:Name',
+                'Name': 'tag:service',
                 'Values': [
-                    self.cfg.get('EC2_NAME'),
+                    self.cfg.get('SERVICE_PREFIX'),
                 ]
             },
         ])
-        return response['Reservations'][0]['Instances'][0]['InstanceId']
+
+        sortedInstances = sorted(
+            response['Reservations'], key=lambda k: k['Instances'][0]['LaunchTime'], reverse=True)
+
+        return sortedInstances[0]['Instances'][0]['InstanceId']
 
     def createAMI(self, instanceId, imageName):
-        return self.ec2.create_image(
-            InstanceId=instanceId, NoReboot=True, Name=imageName)
+        # return image id
+
+        imageId = self.ec2.create_image(
+            InstanceId=instanceId, NoReboot=True, Name=imageName)['ImageId']
+
+        # Add Tags
+        self.session.resource('ec2').Image(imageId).create_tags(
+            Tags=([
+                {'Key': 'service', 'Value': self.cfg.get('SERVICE_PREFIX')},
+                {'Key': 'Name', 'Value': imageName}
+            ]))
+
+        return imageId
 
     def waitForAMIAvailable(self, imageId):
         waiter = self.ec2.get_waiter('image_available')
@@ -56,36 +67,44 @@ class AWSOperation:
             'MaxAttempts': 30
         })
 
-    def deleteOldAMI(self, imageName):
-        imageId = self.ec2.describe_images(
-            Filters=[{
-                'Name': 'name',
-                'Values': [imageName]
+    def isStringExist(self, str, pattern):
+        return str.find(pattern) >= 0
 
-            }])['Images'][0]['ImageId']
+    def getLatestLaunchConfig(self):
+        response = self.autoscaling.describe_launch_configurations()
 
-        return self.ec2.deregister_image(ImageId=imageId)
-
-    def getOldLaunchConfig(self):
-        response = self.autoscaling.describe_launch_configurations(
-            LaunchConfigurationNames=[
-                self.cfg.get("LAUNCH_CONFIGURATION_NAME"),
-            ])
-        return response['LaunchConfigurations'][0]
-
-    def deleteOldLaunchConfig(self):
-        return self.autoscaling.delete_launch_configuration(LaunchConfigurationName=self.cfg.get("LAUNCH_CONFIGURATION_NAME"),)
+        LaunchConfigs = filter(lambda k: self.isStringExist(k['LaunchConfigurationName'], self.cfg.get(
+            "SERVICE_PREFIX")), response['LaunchConfigurations'])
+        sortedLaunchConfigs = sorted(
+            LaunchConfigs, key=lambda k: k['CreatedTime'], reverse=True)
+        return sortedLaunchConfigs[0]
 
     def createLaunchConfig(self, oldConfig, amiId):
+        # return Launch Config Name
+        lcName = appendDate(self.cfg.get("SERVICE_PREFIX"))
         response = self.autoscaling.create_launch_configuration(
-            LaunchConfigurationName=self.cfg.get("LAUNCH_CONFIGURATION_NAME"),
+            LaunchConfigurationName=lcName,
             ImageId=amiId,
             KeyName=oldConfig['KeyName'],
             SecurityGroups=oldConfig['SecurityGroups'],
             InstanceType=oldConfig['InstanceType'],
         )
 
-        return response
+        return lcName
+
+    def updateASG(self, launchConfigName):
+        return self.autoscaling.update_auto_scaling_group(
+            AutoScalingGroupName=self.cfg.get("AUTO_SCALING_GROUP_NAME"),
+            LaunchConfigurationName=launchConfigName)
+
+
+def appendDate(str):
+    return str + "-" + getCurrentDate()
+
+
+def getCurrentDate():
+    today = date.today()
+    return today.strftime("%Y-%m-%d")
 
 
 def main():
@@ -93,16 +112,16 @@ def main():
     cfg = Config()
 
     aws = AWSOperation()
-    ec2Id = aws.getEC2InstanceID()
-    oldConfig = aws.getOldLaunchConfig()
+    # ec2Id = aws.getLatestEC2InstanceID()
+    # oldConfig = aws.getLatestLaunchConfig()
 
-    aws.deleteOldLaunchConfig()
-    aws.deleteOldAMI(cfg.get("AMI_NAME"))
+    # AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
+    # amiId = aws.createAMI(ec2Id, AMI_NAME)
+    # aws.waitForAMIAvailable(amiId)
 
-    amiInfo = aws.createAMI(ec2Id, cfg.get("AMI_NAME"))
-    aws.waitForAMIAvailable(amiInfo['ImageId'])
-
-    aws.createLaunchConfig(oldConfig, amiInfo['ImageId'])
+    # lcName = aws.createLaunchConfig(oldConfig, amiId)
+    # lcName = 'plone-2020-01-03'
+    # aws.updateASG(lcName)
 
 
 if __name__ == '__main__':

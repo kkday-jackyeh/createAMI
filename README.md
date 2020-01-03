@@ -21,15 +21,18 @@
 
 ## Getting Started
 
-1. Modify .env
+1. Add a Tag in Auto Scaling Group at AWS console
+   ![](./readme.png)
+
+2. Modify .env
 
 ```shell
     $ cp env.example .env
 ```
 
-2. fill in .env
+3. fill in .env
 
-3. Run program
+4. Run program
 
 ```shell
     $ python3 index.py

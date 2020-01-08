@@ -82,9 +82,14 @@ class AWSOperation:
     def createLaunchConfig(self, oldConfig, amiId):
         # return Launch Config Name
         lcName = appendDate(self.cfg.get("SERVICE_PREFIX"))
-        response = self.autoscaling.create_launch_configuration(
+        self.autoscaling.create_launch_configuration(
             LaunchConfigurationName=lcName,
             ImageId=amiId,
+            IamInstanceProfile=oldConfig['IamInstanceProfile'],
+            BlockDeviceMappings=oldConfig['BlockDeviceMappings'],
+            InstanceMonitoring={
+                'Enabled': False
+            },
             KeyName=oldConfig['KeyName'],
             SecurityGroups=oldConfig['SecurityGroups'],
             InstanceType=oldConfig['InstanceType'],
@@ -112,16 +117,15 @@ def main():
     cfg = Config()
 
     aws = AWSOperation()
-    # ec2Id = aws.getLatestEC2InstanceID()
-    # oldConfig = aws.getLatestLaunchConfig()
+    ec2Id = aws.getLatestEC2InstanceID()
+    oldConfig = aws.getLatestLaunchConfig()
 
-    # AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
-    # amiId = aws.createAMI(ec2Id, AMI_NAME)
-    # aws.waitForAMIAvailable(amiId)
+    AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
+    amiId = aws.createAMI(ec2Id, AMI_NAME)
+    aws.waitForAMIAvailable(amiId)
 
-    # lcName = aws.createLaunchConfig(oldConfig, amiId)
-    # lcName = 'plone-2020-01-03'
-    # aws.updateASG(lcName)
+    lcName = aws.createLaunchConfig(oldConfig, amiId)
+    aws.updateASG(lcName)
 
 
 if __name__ == '__main__':

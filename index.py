@@ -47,6 +47,19 @@ class AWSOperation:
 
     def createAMI(self, instanceId, imageName):
         # return image id
+        resp = self.ec2.describe_images(
+            Filters=[
+                {
+                    'Name': 'tag:Name',
+                    'Values': [
+                        imageName,
+                    ]
+                },
+            ],
+        )
+
+        if len(resp['Images']) > 0:
+            return resp['Images'][0]['ImageId']
 
         imageId = self.ec2.create_image(
             InstanceId=instanceId, NoReboot=True, Name=imageName)['ImageId']
@@ -82,19 +95,39 @@ class AWSOperation:
     def createLaunchConfig(self, oldConfig, amiId):
         # return Launch Config Name
         lcName = appendDate(self.cfg.get("SERVICE_PREFIX"))
-        self.autoscaling.create_launch_configuration(
-            LaunchConfigurationName=lcName,
-            ImageId=amiId,
-            IamInstanceProfile=oldConfig['IamInstanceProfile'],
-            BlockDeviceMappings=oldConfig['BlockDeviceMappings'],
-            InstanceMonitoring={
-                'Enabled': False
-            },
-            KeyName=oldConfig['KeyName'],
-            SecurityGroups=oldConfig['SecurityGroups'],
-            InstanceType=oldConfig['InstanceType'],
+
+        resp = self.autoscaling.describe_launch_configurations(
+            LaunchConfigurationNames=[lcName],
         )
 
+        if len(resp['LaunchConfigurations']) > 0:
+            return resp['LaunchConfigurations'][0]['LaunchConfigurationName']
+
+        if oldConfig.get('IamInstanceProfile') != None:
+            self.autoscaling.create_launch_configuration(
+                LaunchConfigurationName=lcName,
+                ImageId=amiId,
+                IamInstanceProfile=oldConfig.get('IamInstanceProfile'),
+                BlockDeviceMappings=oldConfig['BlockDeviceMappings'],
+                InstanceMonitoring={
+                    'Enabled': False
+                },
+                KeyName=oldConfig['KeyName'],
+                SecurityGroups=oldConfig['SecurityGroups'],
+                InstanceType=oldConfig['InstanceType'],
+            )
+        else:
+            self.autoscaling.create_launch_configuration(
+                LaunchConfigurationName=lcName,
+                ImageId=amiId,
+                BlockDeviceMappings=oldConfig['BlockDeviceMappings'],
+                InstanceMonitoring={
+                    'Enabled': False
+                },
+                KeyName=oldConfig['KeyName'],
+                SecurityGroups=oldConfig['SecurityGroups'],
+                InstanceType=oldConfig['InstanceType'],
+            )
         return lcName
 
     def updateASG(self, launchConfigName):

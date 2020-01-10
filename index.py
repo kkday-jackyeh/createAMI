@@ -103,6 +103,8 @@ class AWSOperation:
         if len(resp['LaunchConfigurations']) > 0:
             return resp['LaunchConfigurations'][0]['LaunchConfigurationName']
 
+        del oldConfig['BlockDeviceMappings'][0]['Ebs']['SnapshotId']
+
         if oldConfig.get('IamInstanceProfile') != None:
             self.autoscaling.create_launch_configuration(
                 LaunchConfigurationName=lcName,
@@ -115,6 +117,7 @@ class AWSOperation:
                 KeyName=oldConfig['KeyName'],
                 SecurityGroups=oldConfig['SecurityGroups'],
                 InstanceType=oldConfig['InstanceType'],
+                AssociatePublicIpAddress=True
             )
         else:
             self.autoscaling.create_launch_configuration(
@@ -127,6 +130,7 @@ class AWSOperation:
                 KeyName=oldConfig['KeyName'],
                 SecurityGroups=oldConfig['SecurityGroups'],
                 InstanceType=oldConfig['InstanceType'],
+                AssociatePublicIpAddress=True
             )
         return lcName
 

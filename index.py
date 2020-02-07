@@ -103,7 +103,8 @@ class AWSOperation:
         if len(resp['LaunchConfigurations']) > 0:
             return resp['LaunchConfigurations'][0]['LaunchConfigurationName']
 
-        del oldConfig['BlockDeviceMappings'][0]['Ebs']['SnapshotId']
+        if "SnapshotId" in oldConfig['BlockDeviceMappings'][0]['Ebs']:
+            del oldConfig['BlockDeviceMappings'][0]['Ebs']['SnapshotId']
 
         if oldConfig.get('IamInstanceProfile') != None:
             self.autoscaling.create_launch_configuration(

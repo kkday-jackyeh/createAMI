@@ -29,7 +29,7 @@
 2. Modify .env
 
 ```shell
-    $ cp env.example .env
+    $ cp env.template .env
 ```
 
 3. fill in .env

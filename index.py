@@ -3,10 +3,13 @@
 import configparser
 import boto3
 from datetime import date
+import os
 
 
 class Config:
     def __init__(self):
+        os.chdir(os.path.dirname(__file__))
+
         # Read config from ini file: .env
         self.config = configparser.ConfigParser()
         self.config.read('.env')

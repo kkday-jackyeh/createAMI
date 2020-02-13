@@ -8,7 +8,8 @@ import os
 
 class Config:
     def __init__(self):
-        os.chdir(os.path.dirname(__file__))
+        if os.path.dirname(__file__) != "":
+            os.chdir(os.path.dirname(__file__))
 
         # Read config from ini file: .env
         self.config = configparser.ConfigParser()
@@ -157,16 +158,16 @@ def main():
 
     cfg = Config()
 
-    aws = AWSOperation()
-    ec2Id = aws.getLatestEC2InstanceID()
-    oldConfig = aws.getLatestLaunchConfig()
+    # aws = AWSOperation()
+    # ec2Id = aws.getLatestEC2InstanceID()
+    # oldConfig = aws.getLatestLaunchConfig()
 
-    AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
-    amiId = aws.createAMI(ec2Id, AMI_NAME)
-    aws.waitForAMIAvailable(amiId)
+    # AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
+    # amiId = aws.createAMI(ec2Id, AMI_NAME)
+    # aws.waitForAMIAvailable(amiId)
 
-    lcName = aws.createLaunchConfig(oldConfig, amiId)
-    aws.updateASG(lcName)
+    # lcName = aws.createLaunchConfig(oldConfig, amiId)
+    # aws.updateASG(lcName)
 
 
 if __name__ == '__main__':

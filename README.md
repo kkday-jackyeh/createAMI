@@ -34,10 +34,16 @@
 
 3. fill in .env
 
-4. Run program
+4. Run program to backup EC2
 
 ```shell
     $ python3 index.py
+```
+
+5. Run program to delete outdated resources
+
+```shell
+    $ python3 autoDelete.py
 ```
 
 ---
@@ -51,6 +57,15 @@
 => service: {{ SERVICE_PREFIX in .env }}
 ex.
 service: Plone
+```
 
 2. Launch Config Name have to contain SERVICE_PREFIX in .env
-```
+
+3. The script autoDelete.py ALWAYS reserve today's resources even if set count to 0.
+
+   - ex.
+     ```yaml
+     RESERVED:
+       AMI_COUNT: 0
+       LAUNCH_CONFIG_COUNT: 0
+     ```

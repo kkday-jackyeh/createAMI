@@ -1,9 +1,17 @@
 #!/usr/bin/python3
 
-import configparser
+import yaml
 import boto3
 from datetime import date
 import os
+
+
+class RunFailed(Exception):
+    def __init__(self, m):
+        self.message = m
+
+    def __str__(self):
+        return self.message
 
 
 class Config:
@@ -11,24 +19,26 @@ class Config:
         if os.path.dirname(__file__) != "":
             os.chdir(os.path.dirname(__file__))
 
-        # Read config from ini file: .env
-        self.config = configparser.ConfigParser()
-        self.config.read('.env')
+        # Read config from ini file: .env.yml
+        with open(".env", "r") as stream:
+            self.config = yaml.load(stream, Loader=yaml.FullLoader)
 
-    def get(self, key):
-        # get config by key
-        return self.config.get('default', key)
+    def get(self):
+        # get config object
+        return self.config
 
 
 class AWSOperation:
 
-    def __init__(self):
+    def __init__(self, servicePrefix, asgName):
         self.cfg = Config()
+        self.servicePrefix = servicePrefix
+        self.asgName = asgName
 
         self.session = boto3.Session(
-            aws_access_key_id=self.cfg.get("AWS_ACCESS_KEY"),
-            aws_secret_access_key=self.cfg.get("AWS_SECRET_KEY"),
-            region_name=self.cfg.get("AWS_REGION")
+            aws_access_key_id=self.cfg.get()['AWS']['ACCESS_KEY'],
+            aws_secret_access_key=self.cfg.get()['AWS']['SECRET_KEY'],
+            region_name=self.cfg.get()['AWS']['REGION']
         )
 
         self.ec2 = self.session.client('ec2')
@@ -39,7 +49,7 @@ class AWSOperation:
             {
                 'Name': 'tag:service',
                 'Values': [
-                    self.cfg.get('SERVICE_PREFIX'),
+                    self.servicePrefix,
                 ]
             },
         ])
@@ -47,6 +57,9 @@ class AWSOperation:
         sortedInstances = sorted(
             response['Reservations'], key=lambda k: k['Instances'][0]['LaunchTime'], reverse=True)
 
+        if len(sortedInstances) == 0:
+            raise RunFailed(
+                'Error: Please set tag:service to your EC2 instance and Auto scaling group.')
         return sortedInstances[0]['Instances'][0]['InstanceId']
 
     def createAMI(self, instanceId, imageName):
@@ -71,7 +84,7 @@ class AWSOperation:
         # Add Tags
         self.session.resource('ec2').Image(imageId).create_tags(
             Tags=([
-                {'Key': 'service', 'Value': self.cfg.get('SERVICE_PREFIX')},
+                {'Key': 'service', 'Value': self.servicePrefix},
                 {'Key': 'Name', 'Value': imageName}
             ]))
 
@@ -90,15 +103,16 @@ class AWSOperation:
     def getLatestLaunchConfig(self):
         response = self.autoscaling.describe_launch_configurations()
 
-        LaunchConfigs = filter(lambda k: self.isStringExist(k['LaunchConfigurationName'], self.cfg.get(
-            "SERVICE_PREFIX")), response['LaunchConfigurations'])
+        LaunchConfigs = filter(lambda k: self.isStringExist(
+            k['LaunchConfigurationName'], self.servicePrefix), response['LaunchConfigurations'])
+
         sortedLaunchConfigs = sorted(
             LaunchConfigs, key=lambda k: k['CreatedTime'], reverse=True)
         return sortedLaunchConfigs[0]
 
     def createLaunchConfig(self, oldConfig, amiId):
         # return Launch Config Name
-        lcName = appendDate(self.cfg.get("SERVICE_PREFIX"))
+        lcName = appendDate(self.servicePrefix)
 
         resp = self.autoscaling.describe_launch_configurations(
             LaunchConfigurationNames=[lcName],
@@ -141,7 +155,7 @@ class AWSOperation:
 
     def updateASG(self, launchConfigName):
         return self.autoscaling.update_auto_scaling_group(
-            AutoScalingGroupName=self.cfg.get("AUTO_SCALING_GROUP_NAME"),
+            AutoScalingGroupName=self.asgName,
             LaunchConfigurationName=launchConfigName)
 
 
@@ -158,16 +172,20 @@ def main():
 
     cfg = Config()
 
-    # aws = AWSOperation()
-    # ec2Id = aws.getLatestEC2InstanceID()
-    # oldConfig = aws.getLatestLaunchConfig()
+    for element in cfg.get()["BACKUP_LIST"]:
+        servicePrefix = element["SERVICE_PREFIX"]
+        asgName = element["AUTO_SCALING_GROUP_NAME"]
 
-    # AMI_NAME = appendDate(cfg.get("SERVICE_PREFIX"))
-    # amiId = aws.createAMI(ec2Id, AMI_NAME)
-    # aws.waitForAMIAvailable(amiId)
+        aws = AWSOperation(servicePrefix, asgName)
+        ec2Id = aws.getLatestEC2InstanceID()
+        oldConfig = aws.getLatestLaunchConfig()
 
-    # lcName = aws.createLaunchConfig(oldConfig, amiId)
-    # aws.updateASG(lcName)
+        AMI_NAME = appendDate(servicePrefix)
+        amiId = aws.createAMI(ec2Id, AMI_NAME)
+        aws.waitForAMIAvailable(amiId)
+
+        lcName = aws.createLaunchConfig(oldConfig, amiId)
+        aws.updateASG(lcName)
 
 
 if __name__ == '__main__':
